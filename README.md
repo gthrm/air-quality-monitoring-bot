@@ -14,7 +14,7 @@ This project is a Node.js service that monitors air quality using ThingSpeak and
 1. **Clone the repository**:
 
     ```sh
-    git clone https://github.com/yourusername/air-quality-monitoring-bot.git
+    git clone https://github.com/gthrm/air-quality-monitoring-bot
     cd air-quality-monitoring-bot
     ```
 
@@ -32,6 +32,7 @@ This project is a Node.js service that monitors air quality using ThingSpeak and
     TELEGRAM_TOKEN=your_telegram_bot_token
     TELEGRAM_CHAT_ID=your_telegram_chat_id
     AIR_QUALITY_THRESHOLD=your_air_quality_threshold
+    CRON_EXPRESSION=*/5 * * * *
     ```
 
 ## Usage
