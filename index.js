@@ -10,13 +10,16 @@ const {
   TELEGRAM_TOKEN,
   TELEGRAM_CHAT_ID,
   AIR_QUALITY_THRESHOLD,
+  TEMPERATURE_THRESHOLD,
   CRON_EXPRESSION,
 } = process.env;
 
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
 let lastAirPollution = 0;
+let lastTemperature = 0;
 let wasPollutionAlertSent = false;
+let wasTemperatureAlertSent = false;
 
 async function checkAirPollution() {
   try {
@@ -55,6 +58,45 @@ async function checkAirPollution() {
   }
 }
 
+async function checkTemperature() {
+  try {
+    const response = await axios.get(`https://api.thingspeak.com/channels/${THINGSPEAK_CHANNEL_ID}/feeds.json`, {
+      params: {
+        api_key: THINGSPEAK_API_KEY,
+        results: 1,
+      },
+    });
+
+    const { feeds } = response.data;
+    if (feeds.length > 0) {
+      const latestEntry = feeds[0];
+      const temperature = parseFloat(latestEntry.field1);
+
+      if (temperature > TEMPERATURE_THRESHOLD) {
+        const message = `⚠️ Attention! Temperature exceeded: ${temperature} °C 🥵`;
+        logger.info(`Notification sent: ${message}`);
+        if (!wasTemperatureAlertSent || temperature > lastTemperature) {
+          await bot.sendMessage(TELEGRAM_CHAT_ID, message);
+          wasTemperatureAlertSent = true;
+        }
+      } else {
+        if (wasTemperatureAlertSent) {
+          const message = `✅ Temperature has normalized: ${temperature}`;
+          await bot.sendMessage(TELEGRAM_CHAT_ID, message);
+          logger.info(`Notification sent: ${message}`);
+          wasTemperatureAlertSent = false;
+        }
+        logger.info(`Temperature is normal: ${temperature}`);
+      }
+      lastTemperature = temperature;
+    }
+  } catch (error) {
+    logger.error('Error fetching data from ThingSpeak:', error);
+  }
+}
+
 checkAirPollution();
+checkTemperature();
 
 cron.schedule(CRON_EXPRESSION, checkAirPollution);
+cron.schedule(CRON_EXPRESSION, checkTemperature);
