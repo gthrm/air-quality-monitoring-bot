@@ -10,6 +10,7 @@ const {
   TELEGRAM_TOKEN,
   TELEGRAM_CHAT_ID,
   AIR_QUALITY_THRESHOLD,
+  AIR_QUALITY_NIGHT_THRESHOLD,
   TEMPERATURE_THRESHOLD,
   CRON_EXPRESSION,
 } = process.env;
@@ -20,6 +21,11 @@ let lastAirPollution = 0;
 let lastTemperature = 0;
 let wasPollutionAlertSent = false;
 let wasTemperatureAlertSent = false;
+
+function isNight() {
+  const currentHour = new Date().getHours();
+  return currentHour >= 0 && currentHour < 8;
+}
 
 async function checkAirPollution() {
   try {
@@ -34,8 +40,9 @@ async function checkAirPollution() {
     if (feeds.length > 0) {
       const latestEntry = feeds[0];
       const airPollution = parseFloat(latestEntry.field3);
+      const airQualityThreshold = isNight() ? AIR_QUALITY_NIGHT_THRESHOLD : AIR_QUALITY_THRESHOLD;
 
-      if (airPollution > AIR_QUALITY_THRESHOLD) {
+      if (airPollution > airQualityThreshold) {
         const message = `⚠️ Attention! Air pollution index exceeded: ${airPollution} 😷`;
         logger.info(`Notification sent: ${message}`);
         if (!wasPollutionAlertSent || airPollution > lastAirPollution) {
