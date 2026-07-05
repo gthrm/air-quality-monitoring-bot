@@ -12,6 +12,9 @@ const {
   AIR_QUALITY_THRESHOLD,
   AIR_QUALITY_NIGHT_THRESHOLD,
   TEMPERATURE_THRESHOLD,
+  AC_TEMPERATURE_THRESHOLD,
+  AC_TEMPERATURE_RESTORE,
+  M5_STICK_IP,
   CRON_EXPRESSION,
 } = process.env;
 
@@ -21,11 +24,40 @@ let lastAirPollution = 0;
 let lastTemperature = 0;
 let wasPollutionAlertSent = false;
 let wasTemperatureAlertSent = false;
+let isAcOn = false;
 
 function isNight() {
   const currentHour = new Date().getHours();
   return currentHour >= 0 && currentHour < 8;
 }
+
+// ── AC Control ─────────────────────────────────────────────────────────────
+
+async function sendACCommand(command) {
+  if (!M5_STICK_IP) return;
+  try {
+    await axios.get(`http://${M5_STICK_IP}/ac/${command}`, { timeout: 5000 });
+    logger.info(`AC command sent: ${command}`);
+  } catch (error) {
+    logger.error(`Failed to send AC command "${command}":`, error.message);
+  }
+}
+
+async function turnACOn(temperature) {
+  if (isAcOn) return;
+  await sendACCommand('on');
+  isAcOn = true;
+  await bot.sendMessage(TELEGRAM_CHAT_ID, `🌡️ Температура ${temperature}°C — кондиционер включён автоматически`);
+}
+
+async function turnACOff(temperature) {
+  if (!isAcOn) return;
+  await sendACCommand('off');
+  isAcOn = false;
+  await bot.sendMessage(TELEGRAM_CHAT_ID, `✅ Температура ${temperature}°C — кондиционер выключен`);
+}
+
+// ── Air quality check ──────────────────────────────────────────────────────
 
 async function checkAirPollution() {
   try {
@@ -65,6 +97,8 @@ async function checkAirPollution() {
   }
 }
 
+// ── Temperature check + AC control ────────────────────────────────────────
+
 async function checkTemperature() {
   try {
     const response = await axios.get(`https://api.thingspeak.com/channels/${THINGSPEAK_CHANNEL_ID}/feeds.json`, {
@@ -79,6 +113,7 @@ async function checkTemperature() {
       const latestEntry = feeds[0];
       const temperature = parseFloat(latestEntry.field1);
 
+      // Telegram уведомления (оригинальная логика)
       if (temperature > TEMPERATURE_THRESHOLD) {
         const message = `⚠️ Attention! Temperature exceeded: ${temperature} °C 🥵`;
         logger.info(`Notification sent: ${message}`);
@@ -95,12 +130,28 @@ async function checkTemperature() {
         }
         logger.info(`Temperature is normal: ${temperature}`);
       }
+
+      // AC управление через M5StickC
+      const acOnThreshold = parseFloat(AC_TEMPERATURE_THRESHOLD);
+      // Гистерезис 2°C: включаем при +threshold, выключаем при -restore (или threshold-2)
+      const acOffThreshold = parseFloat(AC_TEMPERATURE_RESTORE || acOnThreshold - 2);
+
+      if (!isNaN(acOnThreshold) && M5_STICK_IP) {
+        if (temperature >= acOnThreshold) {
+          await turnACOn(temperature);
+        } else if (temperature <= acOffThreshold) {
+          await turnACOff(temperature);
+        }
+      }
+
       lastTemperature = temperature;
     }
   } catch (error) {
     logger.error('Error fetching data from ThingSpeak:', error);
   }
 }
+
+// ── Start ──────────────────────────────────────────────────────────────────
 
 checkAirPollution();
 checkTemperature();
