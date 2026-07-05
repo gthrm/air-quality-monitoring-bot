@@ -57,6 +57,18 @@ async function turnACOff(temperature) {
   await bot.sendMessage(TELEGRAM_CHAT_ID, `✅ Температура ${temperature}°C — кондиционер выключен`);
 }
 
+async function sendTemperatureToStick(current, threshold) {
+  if (!M5_STICK_IP) return;
+  try {
+    await axios.get(`http://${M5_STICK_IP}/temperature`, {
+      params: { current, threshold },
+      timeout: 5000,
+    });
+  } catch (error) {
+    logger.error('Failed to send temperature to stick:', error.message);
+  }
+}
+
 // ── Air quality check ──────────────────────────────────────────────────────
 
 async function checkAirPollution() {
@@ -135,6 +147,8 @@ async function checkTemperature() {
       const acOnThreshold = parseFloat(AC_TEMPERATURE_THRESHOLD);
       // Гистерезис 2°C: включаем при +threshold, выключаем при -restore (или threshold-2)
       const acOffThreshold = parseFloat(AC_TEMPERATURE_RESTORE || acOnThreshold - 2);
+
+      await sendTemperatureToStick(temperature, acOnThreshold);
 
       if (!isNaN(acOnThreshold) && M5_STICK_IP) {
         if (temperature >= acOnThreshold) {
