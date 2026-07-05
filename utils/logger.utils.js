@@ -37,8 +37,8 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 const telegramTransport = new TelegramTransport({
-  telegramBotToken: process.env.BOT_TOKEN,
-  chatId: process.env.CHAT_ID,
+  telegramBotToken: process.env.TELEGRAM_TOKEN,
+  chatId: process.env.TELEGRAM_CHAT_ID,
 });
 
 logger.add(telegramTransport);

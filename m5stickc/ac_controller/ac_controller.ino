@@ -21,8 +21,9 @@
 #include <IRremoteESP8266.h>
 #include <IRsend.h>
 
-const char* WIFI_SSID = "REDACTED_WIFI_SSID";
-const char* WIFI_PASS = "REDACTED_WIFI_PASSWORD";
+// Заполни реальными значениями локально перед прошивкой — не коммить их сюда
+const char* WIFI_SSID = "your_wifi_ssid";
+const char* WIFI_PASS = "your_wifi_password";
 
 const uint16_t IR_PIN = 19;
 
