@@ -28,10 +28,12 @@ let lastTemperature = 0;
 let wasPollutionAlertSent = false;
 let wasTemperatureAlertSent = false;
 
-// Когда и при какой температуре последний раз слали "on" — чтобы понять,
-// действительно ли кондиционер начал охлаждать, или ИК-команда не долетела.
+// Когда и при какой температуре последний раз слали "on"/"off" — чтобы понять,
+// действительно ли кондиционер отреагировал, или ИК-команда не долетела.
 let acOnSentAt = null;
 let acOnAtTemp = null;
+let acOffSentAt = null;
+let acOffAtTemp = null;
 
 function isNight() {
   const currentHour = new Date().getHours();
@@ -90,6 +92,8 @@ async function turnACOn(temperature) {
     await axios.get(`http://${M5_STICK_IP}/ac/on`, { timeout: 5000 });
     acOnSentAt = Date.now();
     acOnAtTemp = temperature;
+    acOffSentAt = null;
+    acOffAtTemp = null;
     logger.info('AC command sent: on');
     await bot.sendMessage(TELEGRAM_CHAT_ID, `🌡️ Температура ${temperature}°C — кондиционер включён автоматически`);
   } catch (error) {
@@ -99,10 +103,28 @@ async function turnACOn(temperature) {
 
 async function turnACOff(temperature) {
   const isOn = await getStickACState();
-  if (isOn !== true) return; // уже выключен, либо стик недоступен — не гадаем
+  if (isOn === null) return; // стик недоступен — не гадаем
+
+  if (isOn === false) {
+    if (acOffSentAt === null) {
+      // Стик уже считает AC выключенным (например, до рестарта бота) — просто
+      // запоминаем точку отсчёта, чтобы было с чем сравнивать дальше.
+      acOffSentAt = Date.now();
+      acOffAtTemp = temperature;
+      return;
+    }
+
+    const stale = Date.now() - acOffSentAt > AC_RETRY_MS;
+    const stillCooling = temperature <= acOffAtTemp;
+    if (!(stale && stillCooling)) return;
+
+    logger.info(`AC believed OFF but temperature keeps dropping (${acOffAtTemp}°C → ${temperature}°C) — resending OFF`);
+  }
 
   try {
     await axios.get(`http://${M5_STICK_IP}/ac/off`, { timeout: 5000 });
+    acOffSentAt = Date.now();
+    acOffAtTemp = temperature;
     acOnSentAt = null;
     acOnAtTemp = null;
     logger.info('AC command sent: off');
