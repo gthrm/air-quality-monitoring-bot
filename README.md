@@ -42,6 +42,7 @@ It can also automatically turn an air conditioner on/off based on temperature, b
     M5_STICK_IP=192.168.1.XXX        # M5StickC IP on the local network (or accontrol.local)
     AC_TEMPERATURE_THRESHOLD=28      # turn AC on at this temperature
     AC_TEMPERATURE_RESTORE=24        # turn AC off at this temperature (hysteresis)
+    AC_RETRY_MINUTES=10              # resend "on" if temperature hasn't dropped after this many minutes
     ```
 
 ## Usage
@@ -72,6 +73,8 @@ If `M5_STICK_IP` and `AC_TEMPERATURE_THRESHOLD` are set, the bot polls the tempe
 - Temperature drops to `AC_TEMPERATURE_RESTORE` (defaults to `AC_TEMPERATURE_THRESHOLD - 2` if unset) → AC is turned off (`GET http://<M5_STICK_IP>/ac/off`).
 
 A Telegram notification is sent whenever the AC state changes.
+
+Since the IR command is fire-and-forget (no confirmation from the AC unit itself), the bot also guards against a missed command: if the stick believes the AC is already on but the temperature hasn't dropped after `AC_RETRY_MINUTES`, the bot resends the "on" command anyway.
 
 The `m5stickc/` directory contains the Arduino firmware for the device:
 

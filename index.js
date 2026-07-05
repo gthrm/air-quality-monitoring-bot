@@ -14,16 +14,24 @@ const {
   TEMPERATURE_THRESHOLD,
   AC_TEMPERATURE_THRESHOLD,
   AC_TEMPERATURE_RESTORE,
+  AC_RETRY_MINUTES,
   M5_STICK_IP,
   CRON_EXPRESSION,
 } = process.env;
 
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
+const AC_RETRY_MS = (parseFloat(AC_RETRY_MINUTES) || 10) * 60 * 1000;
+
 let lastAirPollution = 0;
 let lastTemperature = 0;
 let wasPollutionAlertSent = false;
 let wasTemperatureAlertSent = false;
+
+// Когда и при какой температуре последний раз слали "on" — чтобы понять,
+// действительно ли кондиционер начал охлаждать, или ИК-команда не долетела.
+let acOnSentAt = null;
+let acOnAtTemp = null;
 
 function isNight() {
   const currentHour = new Date().getHours();
@@ -60,10 +68,28 @@ async function sendTemperatureToStick(current, threshold) {
 
 async function turnACOn(temperature) {
   const isOn = await getStickACState();
-  if (isOn !== false) return; // уже включён, либо стик недоступен — не гадаем
+  if (isOn === null) return; // стик недоступен — не гадаем
+
+  if (isOn === true) {
+    if (acOnSentAt === null) {
+      // Стик уже считает AC включённым (например, до рестарта бота) — просто
+      // запоминаем точку отсчёта, чтобы было с чем сравнивать дальше.
+      acOnSentAt = Date.now();
+      acOnAtTemp = temperature;
+      return;
+    }
+
+    const stale = Date.now() - acOnSentAt > AC_RETRY_MS;
+    const notCooling = temperature >= acOnAtTemp;
+    if (!(stale && notCooling)) return;
+
+    logger.info(`AC believed ON but temperature isn't dropping (${acOnAtTemp}°C → ${temperature}°C) — resending ON`);
+  }
 
   try {
     await axios.get(`http://${M5_STICK_IP}/ac/on`, { timeout: 5000 });
+    acOnSentAt = Date.now();
+    acOnAtTemp = temperature;
     logger.info('AC command sent: on');
     await bot.sendMessage(TELEGRAM_CHAT_ID, `🌡️ Температура ${temperature}°C — кондиционер включён автоматически`);
   } catch (error) {
@@ -77,6 +103,8 @@ async function turnACOff(temperature) {
 
   try {
     await axios.get(`http://${M5_STICK_IP}/ac/off`, { timeout: 5000 });
+    acOnSentAt = null;
+    acOnAtTemp = null;
     logger.info('AC command sent: off');
     await bot.sendMessage(TELEGRAM_CHAT_ID, `✅ Температура ${temperature}°C — кондиционер выключен`);
   } catch (error) {
