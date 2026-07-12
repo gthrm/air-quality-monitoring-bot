@@ -3,6 +3,7 @@ const axios = require('axios');
 const TelegramBot = require('node-telegram-bot-api');
 const cron = require('node-cron');
 const { logger } = require('./utils/logger.utils');
+const { startMetricsServer, metrics } = require('./utils/metrics.utils');
 
 const {
   THINGSPEAK_API_KEY,
@@ -49,8 +50,13 @@ async function getStickACState() {
   if (!M5_STICK_IP) return null;
   try {
     const response = await axios.get(`http://${M5_STICK_IP}/status`, { timeout: 5000 });
-    return response.data.ac === 'on';
+    metrics.stickUp.set(1);
+    const isOn = response.data.ac === 'on';
+    metrics.acState.set(isOn ? 1 : 0);
+    return isOn;
   } catch (error) {
+    metrics.stickUp.set(0);
+    metrics.stickFetchErrors.inc();
     logger.error('Failed to fetch AC status from stick:', error.message);
     return null;
   }
@@ -63,7 +69,10 @@ async function sendTemperatureToStick(current, threshold) {
       params: { current, threshold: Number.isNaN(threshold) ? undefined : threshold },
       timeout: 5000,
     });
+    metrics.stickUp.set(1);
   } catch (error) {
+    metrics.stickUp.set(0);
+    metrics.stickFetchErrors.inc();
     logger.error('Failed to send temperature to stick:', error.message);
   }
 }
@@ -94,6 +103,7 @@ async function turnACOn(temperature) {
     acOnAtTemp = temperature;
     acOffSentAt = null;
     acOffAtTemp = null;
+    metrics.acState.set(1);
     logger.info('AC command sent: on');
     await bot.sendMessage(TELEGRAM_CHAT_ID, `🌡️ Температура ${temperature}°C — кондиционер включён автоматически`);
   } catch (error) {
@@ -127,6 +137,7 @@ async function turnACOff(temperature) {
     acOffAtTemp = temperature;
     acOnSentAt = null;
     acOnAtTemp = null;
+    metrics.acState.set(0);
     logger.info('AC command sent: off');
     await bot.sendMessage(TELEGRAM_CHAT_ID, `✅ Температура ${temperature}°C — кондиционер выключен`);
   } catch (error) {
@@ -137,6 +148,7 @@ async function turnACOff(temperature) {
 // ── Air quality + temperature processing ────────────────────────────────────
 
 function checkPollution(airPollution) {
+  metrics.airPollution.set(airPollution);
   const airQualityThreshold = isNight() ? AIR_QUALITY_NIGHT_THRESHOLD : AIR_QUALITY_THRESHOLD;
 
   if (airPollution > airQualityThreshold) {
@@ -159,6 +171,7 @@ function checkPollution(airPollution) {
 }
 
 async function checkTemperature(temperature) {
+  metrics.temperature.set(temperature);
   if (temperature > TEMPERATURE_THRESHOLD) {
     const message = `⚠️ Attention! Temperature exceeded: ${temperature} °C 🥵`;
     if (!wasTemperatureAlertSent || temperature > lastTemperature) {
@@ -205,6 +218,9 @@ async function checkThingSpeak() {
       },
     });
 
+    metrics.thingspeakUp.set(1);
+    metrics.lastPollSuccess.set(Date.now() / 1000);
+
     const { feeds } = response.data;
     if (feeds.length > 0) {
       const latestEntry = feeds[0];
@@ -212,12 +228,15 @@ async function checkThingSpeak() {
       await checkTemperature(parseFloat(latestEntry.field1));
     }
   } catch (error) {
+    metrics.thingspeakUp.set(0);
+    metrics.thingspeakFetchErrors.inc();
     logger.error('Error fetching data from ThingSpeak:', error);
   }
 }
 
 // ── Start ──────────────────────────────────────────────────────────────────
 
+startMetricsServer();
 checkThingSpeak();
 
 cron.schedule(CRON_EXPRESSION, checkThingSpeak);

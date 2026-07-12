@@ -1,5 +1,4 @@
 const { createLogger, format, transports } = require('winston');
-const TelegramTransport = require('./telegram-transport.utils');
 require('dotenv').config();
 
 const logger = createLogger({
@@ -36,12 +35,9 @@ if (process.env.NODE_ENV !== 'production') {
   }));
 }
 
-const telegramTransport = new TelegramTransport({
-  telegramBotToken: process.env.TELEGRAM_TOKEN,
-  chatId: process.env.TELEGRAM_CHAT_ID,
-});
-
-logger.add(telegramTransport);
+// Ошибки в Telegram напрямую больше не шлём — алертами занимается Grafana
+// поверх метрик (см. utils/metrics.utils.js). Логи уходят в файлы/консоль,
+// откуда их подхватывает promtail → Loki.
 
 module.exports = {
   logger,
